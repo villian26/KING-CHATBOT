@@ -170,7 +170,6 @@ async def get_chat_language(chat_id):
             
 @nexichat.on_message(filters.incoming)
 async def chatbot_response(client: Client, message: Message):
-    await message.react("👍")
     global blocklist, message_counts
     try:
         user_id = message.from_user.id
