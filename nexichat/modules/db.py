@@ -4,7 +4,7 @@ from pyrogram import filters
 from pyrogram.types import Message
 from nexichat import nexichat as app
 import os
-from config import OWNER_ID, MONG_URL as MONGO_DB_URI
+from config import OWNER_ID, MONGO_URL as MONGO_DB_URI
 from nexichat import SUDOERS
 
 BASE = "https://batbin.me/"
