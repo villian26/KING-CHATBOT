@@ -18,7 +18,7 @@ async def must_join_channel(client: Client, msg: Message):
             if MUST_JOIN.isalpha():
                 link = "https://t.me/" + MUST_JOIN
             else:
-                chat_info = await app.get_chat(MUST_JOIN)
+                chat_info = await nexichat.get_chat(MUST_JOIN)
                 link = chat_info.invite_link
             try:
                 await msg.reply_photo(
