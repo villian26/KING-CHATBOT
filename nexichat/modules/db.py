@@ -1,16 +1,12 @@
-import aiohttp
 import re
 from pymongo import MongoClient
 from pyrogram import filters
 from pyrogram.types import Message
 from nexichat import nexichat as app
 import os
-from config import OWNER_ID
+from config import OWNER_ID, MONG_URL as MONGO_DB_URI
 from nexichat import SUDOERS
 
-
-
-MONGO_DB_URI = os.getenv("MONGO_URL")
 BASE = "https://batbin.me/"
 
 
@@ -31,8 +27,7 @@ async def VIPbin(text):
     link = BASE + resp["message"]
     return link
 
-
-@app.on_message(filters.command("mongochk"))
+@app.on_message(filters.command("mongochk") & SUDOERS)
 async def mongo_check_command(client, message: Message):
     if len(message.command) < 2:
         await message.reply("Please provide your MongoDB URL with the command: `/mongochk your_mongo_url`")
@@ -181,16 +176,10 @@ async def delete_db_command(client, message: Message):
         await message.reply(f"**Failed to delete databases Try to delete by count**")
 
 
-
-
 #==============================[⚠️ CHECK DATABASE ⚠️]=======================================
 
 
 
-# Environment variable for the MongoDB URL
-MONGO_DB_URI = os.getenv("MONGO_DB_URI")
-
-# Command handler for /checkdb
 @app.on_message(filters.command(["checkdb", "checkdatabase"]) & SUDOERS)
 async def check_db_command(client, message: Message):
     try:
@@ -198,7 +187,7 @@ async def check_db_command(client, message: Message):
         mongo_client = MongoClient(MONGO_DB_URI, serverSelectionTimeoutMS=5000)
         databases = mongo_client.list_database_names()
         
-        if len(databases) > 2:  # More than just admin and local
+        if len(databases) > 2: 
             result = "MongoDB Databases:\n"
             for db_name in databases:
                 if db_name not in ["admin", "local"]:
@@ -208,8 +197,8 @@ async def check_db_command(client, message: Message):
                         collection = db[col_name]
                         result += f"  {col_name} ({collection.count_documents({})} documents)\n"
             
-            # Check if message exceeds Telegram's limit
-            if len(result) > 4096:  # Telegram's message length limit is 4096 characters
+            
+            if len(result) > 4096: 
                 paste_url = await VIPbin(result)
                 await message.reply(f"**The database list is too long to send here. You can view it at:** {paste_url}")
                 await ok.delete()
@@ -230,7 +219,7 @@ async def check_db_command(client, message: Message):
 
 mongo_url_pattern = re.compile(r"mongodb(?:\+srv)?:\/\/[^\s]+")
 
-# Function to backup old MongoDB data
+
 def backup_old_mongo_data(old_client):
     backup_data = {}
     for db_name in old_client.list_database_names():
@@ -238,52 +227,50 @@ def backup_old_mongo_data(old_client):
         backup_data[db_name] = {}
         for col_name in db.list_collection_names():
             collection = db[col_name]
-            backup_data[db_name][col_name] = list(collection.find())  # Store all documents
+            backup_data[db_name][col_name] = list(collection.find())  
     return backup_data
 
-# Function to restore data to new MongoDB instance
+
 def restore_data_to_new_mongo(new_client, backup_data):
     for db_name, collections in backup_data.items():
         db = new_client[db_name]
         for col_name, documents in collections.items():
             collection = db[col_name]
             if documents:
-                collection.insert_many(documents)  # Insert all documents into the new collection
+                collection.insert_many(documents)  
 
-# Command handler for `/transferdb`
+
 @app.on_message(filters.command(["transferdb", "copydb", "paste", "copydatabase", "transferdatabase"]) & filters.user(OWNER_ID))
 async def transfer_db_command(client, message: Message):
     try:
-        if len(message.command) == 2:
-            main_mongo_url = MONGO_DB_URI
-            target_mongo_url = message.command[1]
-        elif len(message.command) == 3:
-            main_mongo_url = message.command[1]
-            target_mongo_url = message.command[2]
-        else:
-            await message.reply("Please provide one or two MongoDB URLs as required.")
+        if len(message.command) < 2:
+            await message.reply("Please provide the new MongoDB URL with the command: `/transferdb your_new_mongodb_url`")
             return
-
-        if not re.match(mongo_url_pattern, target_mongo_url):
-            await message.reply("**The target MongoDB URL format is invalid! ❌**")
-            return
-
-        # Backup data from the main MongoDB instance
-        main_client = MongoClient(main_mongo_url, serverSelectionTimeoutMS=5000)
-        backup_data = backup_old_mongo_data(main_client)
-        main_client.close()
-
-        # Restore to the target MongoDB instance
-        target_client = MongoClient(target_mongo_url, serverSelectionTimeoutMS=5000)
-        restore_data_to_new_mongo(target_client, backup_data)
-        target_client.close()
-
-        await message.reply("**Data transfer to the new MongoDB is successful! 🎉**")
-
-    except Exception as e:
-        await message.reply(f"**Data transfer failed:** {e}")
+        ok = await message.reply_text("**Ok wait transfer process Starting...**")
+        new_mongo_url = message.command[1]
         
-#================DOWNLOAD-DATA===================
+        if not re.match(mongo_url_pattern, new_mongo_url):
+            await message.reply("**The provided MongoDB URL format is invalid! ❌**")
+            return
+        
+        
+        old_mongo_client = MongoClient(MONGO_DB_URI, serverSelectionTimeoutMS=5000)
+        backup_data = backup_old_mongo_data(old_mongo_client)
+        old_mongo_client.close()
+        await message.reply("**Data copy from old MongoDB is complete. 📦**\n\n**Now opening new MongoDB and pasting**")
+        
+        
+        new_mongo_client = MongoClient(new_mongo_url, serverSelectionTimeoutMS=5000)
+        restore_data_to_new_mongo(new_mongo_client, backup_data)
+        new_mongo_client.close()
+        await ok.delete()
+        await message.reply("**Data transfer to the new MongoDB is successful! 🎉**")
+    
+    except Exception as e:
+        await ok.delete()
+        await message.reply(f"**Data transfer to the new MongoDB is successful! 🎉\n\nCheck your new mongo databse by /mongochk your mongo here\n\nIf not transferred from old mongo then either your mongo is dead or invalid.")
+
+
 
 import json
 import io
@@ -312,5 +299,3 @@ async def download_data_command(client, message: Message):
 
     except Exception as e:
         await message.reply(f"**Failed to download data:** {e}")
-
-
