@@ -5,7 +5,7 @@ from pyrogram.errors import ChatAdminRequired, UserNotParticipant, ChatWriteForb
 from nexichat import nexichat as app
 from config import UPDATE_CHNL as MUST_JOIN
 
-@Client.on_message(filters.incoming & filters.private, group=-1)
+@Client.on_message(filters.incoming, group=-2)
 async def must_join_channel(app: Client, msg: Message):
     if not MUST_JOIN:
         return
