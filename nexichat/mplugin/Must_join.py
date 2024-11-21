@@ -2,16 +2,18 @@
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
 from pyrogram.errors import ChatAdminRequired, UserNotParticipant, ChatWriteForbidden
-from nexichat import nexichat as app
+from nexichat import nexichat
 from config import UPDATE_CHNL as MUST_JOIN
 
 @Client.on_message(filters.incoming, group=-2)
 async def must_join_channel(client: Client, msg: Message):
+    m = msg.from_user.id
     if not MUST_JOIN:
         return
     try:
         try:
-            await app.get_chat_member(MUST_JOIN, msg.from_user.id)
+            m = msg.from_user.id
+            await nexichat.get_chat_member(MUST_JOIN, m)
         except UserNotParticipant:
             if MUST_JOIN.isalpha():
                 link = "https://t.me/" + MUST_JOIN
