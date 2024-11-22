@@ -19,7 +19,7 @@ START = """**
 
 ╔═════════════════╗
 ║ ➻ ᴍʏ ʀᴇᴘᴏ ➪ [ᴄʟɪᴄᴋ ʜᴇʀᴇ](https://github.com/amritraj78/KING-CHATBOT)  
-║ ➻ ᴄʀᴇᴀᴛᴏʀ ➪ [˹𝐊ɪɴɢᴅᴏᴍ˼](https://t.me/ll_KINGDOM_l)                         
+║ ➻ ᴄʀᴇᴀᴛᴏʀ ➪ [˹𝐊ɪɴɢᴅᴏᴍ˼](https://t.me/ll_KINGDOM_ll)                         
 ╚═════════════════╝
 **"""
 
