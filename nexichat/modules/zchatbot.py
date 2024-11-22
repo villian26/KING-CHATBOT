@@ -10,7 +10,7 @@ from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, 
 from deep_translator import GoogleTranslator
 from nexichat.database.chats import add_served_chat
 from nexichat.database.users import add_served_user
-from nexichat.database import chatai
+from nexichat.database import chatai, abuse_list as abuse_word_list
 from config import MONGO_URL, OWNER_ID
 from nexichat import nexichat, mongo, LOGGER, db
 from nexichat.modules.helpers import CHATBOT_ON, languages
@@ -42,7 +42,7 @@ abuse_cache = []
 blocklist = {}
 message_counts = {}
 
-
+'''
 async def load_abuse_cache():
     global abuse_cache
     abuse_cache = [entry['word'] for entry in await abuse_words_db.find().to_list(length=None)]
@@ -57,7 +57,8 @@ async def is_abuse_present(text: str):
     global abuse_cache
     if not abuse_cache:
         await load_abuse_cache()
-    return any(word in text.lower() for word in abuse_cache)
+    text_lower = text.lower()
+    return any(word in text_lower for word in abuse_list) or any(word in text_lower for word in abuse_cache)
 
 @nexichat.on_message(filters.command("block") & filters.user(OWNER_ID))
 async def block_word(client: Client, message: Message):
@@ -101,7 +102,7 @@ async def list_blocked_words(client: Client, message: Message):
             await message.reply_text("**No blocked words found.**")
     except Exception as e:
         await message.reply_text(f"Error: {e}")
-
+'''
 async def save_reply(original_message: Message, reply_message: Message):
     global replies_cache
     try:
@@ -150,6 +151,117 @@ async def load_replies_cache():
     global replies_cache
     replies_cache = await chatai.find().to_list(length=None)
     await load_abuse_cache()
+
+from pyrogram.enums import ChatType
+
+
+
+async def load_abuse_cache():
+    global abuse_cache
+    abuse_cache = [entry['word'] for entry in await abuse_words_db.find().to_list(length=None)]
+
+async def add_abuse_word(chat_id: int, word: str):
+    if word in abuse_word_list:
+        return False
+    await abuse_words_db.insert_one({"chat_id": chat_id, "word": word})
+    return True
+
+async def remove_abuse_word(chat_id: int, word: str):
+    await abuse_words_db.delete_one({"chat_id": chat_id, "word": word})
+
+async def get_chat_abuse_words(chat_id: int):
+    return [entry['word'] for entry in await abuse_words_db.find({"chat_id": chat_id}).to_list(length=None)]
+
+async def is_abuse_present(text: str, chat_id: int):
+    text_lower = text.lower()
+    chat_abuse_words = await get_chat_abuse_words(chat_id)
+    return any(word in text_lower for word in abuse_word_list) or any(word in text_lower for word in chat_abuse_words)
+
+
+@nexichat.on_message(filters.command("block"))
+async def block_word(client: Client, message: Message):
+    try:
+        if message.chat.type not in [ChatType.GROUP, ChatType.SUPERGROUP]:
+            await message.reply_text("This command can only be used in groups.")
+            return
+
+        user = await client.get_chat_member(message.chat.id, message.from_user.id)
+        if not user.is_admin:
+            await message.reply_text("Only group admins can block words.")
+            return
+
+        if len(message.command) < 2:
+            await message.reply_text("**Usage:** `/block <word>`\nAdd a word to the abuse list.")
+            return
+
+        new_word = message.command[1].lower()
+        chat_id = message.chat.id
+
+        if new_word in abuse_word_list:
+            await message.reply_text(f"**'{new_word}' is already in the global abuse list and cannot be blocked again.**")
+            return
+
+        if await add_abuse_word(chat_id, new_word):
+            await message.reply_text(f"**Word '{new_word}' added to the abuse list for this group!**")
+        else:
+            await message.reply_text(f"**Word '{new_word}' could not be added.**")
+    except Exception as e:
+        await message.reply_text(f"Error: {e}")
+
+
+@nexichat.on_message(filters.command("unblock"))
+async def unblock_word(client: Client, message: Message):
+    try:
+        if message.chat.type not in [ChatType.GROUP, ChatType.SUPERGROUP]:
+            await message.reply_text("This command can only be used in groups.")
+            return
+
+        user = await client.get_chat_member(message.chat.id, message.from_user.id)
+        if not user.is_admin:
+            await message.reply_text("Only group admins can unblock words.")
+            return
+
+        if len(message.command) < 2:
+            await message.reply_text("**Usage:** `/unblock <word>`\nRemove a word from the abuse list.")
+            return
+
+        word_to_remove = message.command[1].lower()
+        chat_id = message.chat.id
+
+        chat_abuse_words = await get_chat_abuse_words(chat_id)
+        if word_to_remove not in chat_abuse_words:
+            await message.reply_text(f"**Word '{word_to_remove}' is not in the abuse list for this group.**")
+            return
+
+        await remove_abuse_word(chat_id, word_to_remove)
+        await message.reply_text(f"**Word '{word_to_remove}' removed from the abuse list for this group!**")
+    except Exception as e:
+        await message.reply_text(f"Error: {e}")
+
+
+@nexichat.on_message(filters.command("blocked"))
+async def list_blocked_words(client: Client, message: Message):
+    try:
+        if message.chat.type not in [ChatType.GROUP, ChatType.SUPERGROUP]:
+            await message.reply_text("This command can only be used in groups.")
+            return
+
+        user = await client.get_chat_member(message.chat.id, message.from_user.id)
+        if not user.is_admin:
+            await message.reply_text("Only group admins can view the blocked words.")
+            return
+
+        chat_id = message.chat.id
+        chat_abuse_words = await get_chat_abuse_words(chat_id)
+
+        if not chat_abuse_words:
+            await message.reply_text("**No blocked words found for this group.**")
+            return
+
+        blocked_words = ", ".join(chat_abuse_words)
+        await message.reply_text(f"**Blocked Words for this group:**\n{blocked_words}")
+    except Exception as e:
+        await message.reply_text(f"Error: {e}")
 
 
 async def get_reply(word: str):
