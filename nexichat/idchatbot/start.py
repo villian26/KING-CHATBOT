@@ -37,6 +37,11 @@ from nexichat.idchatbot.helpers import (
     SOURCE_READ,
 )
 
+from pyrogram import Client, filters
+from pyrogram.types import Chat, User, Channel
+from datetime import datetime
+import time
+
 GSTART = """**ʜᴇʏ ᴅᴇᴀʀ {}**\n\n**ᴛʜᴀɴᴋs ғᴏʀ sᴛᴀʀᴛ ᴍᴇ ɪɴ ɢʀᴏᴜᴘ ʏᴏᴜ ᴄᴀɴ ᴄʜᴀɴɢᴇ ʟᴀɴɢᴜᴀɢᴇ ʙʏ ᴄʟɪᴄᴋ ᴏɴ ɢɪᴠᴇɴ ʙᴇʟᴏᴡ ʙᴜᴛᴛᴏɴs.**\n**ᴄʟɪᴄᴋ ᴀɴᴅ sᴇʟᴇᴄᴛ ʏᴏᴜʀ ғᴀᴠᴏᴜʀɪᴛᴇ ʟᴀɴɢᴜᴀɢᴇ ᴛᴏ sᴇᴛ ᴄʜᴀᴛ ʟᴀɴɢᴜᴀɢᴇ ғᴏʀ ʙᴏᴛ ʀᴇᴘʟʏ.**\n\n**ᴛʜᴀɴᴋ ʏᴏᴜ ᴘʟᴇᴀsᴇ ᴇɴɪᴏʏ.**"""
 STICKER = [
     "CAACAgUAAx0CYlaJawABBy4vZaieO6T-Ayg3mD-JP-f0yxJngIkAAv0JAALVS_FWQY7kbQSaI-geBA",
@@ -204,22 +209,72 @@ async def ping(client: Client, message: Message):
 
 
 @Client.on_message(filters.command("stats", prefixes=[".", "/"]))
-async def stats(cli: Client, message: Message):
+async def stats(client, message):
+    ok = await message.reply("Fetching statistics...")
+    start_time = time.time()
     private_chats = 0
-    group_chats = 0
+    bots = 0
+    groups = 0
+    broadcast_channels = 0
+    admin_in_groups = 0
+    creator_in_groups = 0
+    admin_in_broadcast_channels = 0
+    creator_in_channels = 0
+    unread_mentions = 0
+    unread = 0
+    admingroupids = []
+    broadcastchannelids = []
 
-    async for dialog in cli.get_dialogs():
-        if dialog.chat.type == "private":
+    async for dialog in client.get_dialogs():
+        entity = dialog.chat
+        if isinstance(entity, Channel) and entity.broadcast:
+            broadcast_channels += 1
+            if entity.creator or entity.admin_rights:
+                admin_in_broadcast_channels += 1
+                broadcastchannelids.append(entity.id)
+            if entity.creator:
+                creator_in_channels += 1
+        elif (
+            isinstance(entity, Channel)
+            and entity.megagroup
+            or not isinstance(entity, Channel)
+            and not isinstance(entity, User)
+            and isinstance(entity, Chat)
+        ):
+            groups += 1
+            if entity.creator or entity.admin_rights:
+                admin_in_groups += 1
+                admingroupids.append(entity.id)
+            if entity.creator:
+                creator_in_groups += 1
+        elif isinstance(entity, User):
             private_chats += 1
-        elif dialog.chat.type in ["group", "supergroup"]:
-            group_chats += 1
+            if entity.is_bot:
+                bots += 1
+        unread_mentions += dialog.unread_mentions_count
+        unread += dialog.unread_count
 
-    await message.reply_text(
-        f"""Your Stats:
-
-➻ **Private Chats:** {private_chats}
-➻ **Group Chats:** {group_chats}"""
+    stop_time = time.time() - start_time
+    full_name = message.from_user.first_name
+    date = str(datetime.now().strftime("%B %d, %Y, %H:%M"))
+    response = f"📌 **Stats for {full_name}** \n\n"
+    response += f"**Private Chats:** {private_chats} \n"
+    response += f"   ★ `Users: {private_chats - bots}` \n"
+    response += f"   ★ `Bots: {bots}` \n"
+    response += f"**Groups:** {groups} \n"
+    response += f"**Channels:** {broadcast_channels} \n"
+    response += f"**Admin in Groups:** {admin_in_groups} \n"
+    response += f"   ★ `Creator: {creator_in_groups}` \n"
+    response += f"   ★ `Admin Rights: {admin_in_groups - creator_in_groups}` \n"
+    response += f"**Admin in Channels:** {admin_in_broadcast_channels} \n"
+    response += f"   ★ `Creator: {creator_in_channels}` \n"
+    response += (
+        f"   ★ `Admin Rights: {admin_in_broadcast_channels - creator_in_channels}` \n"
     )
+    response += f"**Unread:** {unread} \n"
+    response += f"**Unread Mentions:** {unread_mentions} \n\n"
+    response += f"📌 __It Took:__ {stop_time:.02f}s \n"
+    await ok.edit(response)
     
 from pyrogram.enums import ParseMode
 
