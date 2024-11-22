@@ -154,7 +154,15 @@ async def load_replies_cache():
 
 from pyrogram.enums import ChatType
 
+from pyrogram.enums import ChatMemberStatus
 
+async def is_admin(client, chat_id, user_id):
+    try:
+        member = await client.get_chat_member(chat_id, user_id)
+        return member.status in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]
+    except Exception as e:
+        print(f"Error in is_admin: {e}")
+        return False
 
 async def load_abuse_cache():
     global abuse_cache
