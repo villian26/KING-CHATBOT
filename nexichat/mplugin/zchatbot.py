@@ -7,7 +7,7 @@ from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, 
 from deep_translator import GoogleTranslator
 from nexichat.database.chats import add_served_chat
 from nexichat.database.users import add_served_user
-from nexichat.database import add_served_cchat, add_served_cuser, chatai
+from nexichat.database import abuse_list, add_served_cchat, add_served_cuser, chatai
 from config import MONGO_URL, OWNER_ID
 from nexichat import nexichat, mongo, LOGGER, db
 from nexichat.mplugin.helpers import languages
@@ -39,7 +39,8 @@ async def is_abuse_present(text: str):
     global abuse_cache
     if not abuse_cache:
         await load_abuse_cache()
-    return any(word in text.lower() for word in abuse_cache)
+    text_lower = text.lower()
+    return any(word in text_lower for word in abuse_list) or any(word in text_lower for word in abuse_cache)
 
 @Client.on_message(filters.command("block") & filters.user(OWNER_ID))
 async def block_word(client: Client, message: Message):
