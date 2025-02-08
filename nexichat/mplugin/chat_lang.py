@@ -1,62 +1,125 @@
-from pyrogram import Client, filters
-import requests
-from pyrogram.types import Message
-from nexichat import nexichat as app, mongo, db
-from MukeshAPI import api
 import asyncio
-from nexichat.mplugin.helpers import languages
+import re
+from typing import Dict, List, Optional
+
+import aiohttp
+from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, CallbackQuery
 
-lang_db = db.ChatLangDb.LangCollection
-message_cache = {}
+from nexichat import nexichat, db
+from config import LANG_DETECTION_API
+from nexichat.utils.helpers import get_chat_language, set_chat_language
 
-async def get_chat_language(chat_id, bot_id):
-    chat_lang = await lang_db.find_one({"chat_id": chat_id, "bot_id": bot_id})
-    return chat_lang["language"] if chat_lang and "language" in chat_lang else None
+# Message cache with TTL (300 seconds = 5 minutes)
+message_cache: Dict[int, List[Message]] = {}
+CACHE_SIZE = 30
+CACHE_TTL = 300
 
-@Client.on_message(filters.command("chatlang", prefixes=["/"]))
-async def fetch_chat_lang(client, message):
+@nexichat.on_message(filters.command("chatlang"))
+async def chat_lang_handler(client: Client, message: Message):
+    """Get current chat language"""
     chat_id = message.chat.id
-    bot_id = client.me.id
-    chat_lang = await get_chat_language(chat_id, bot_id)
-    await message.reply_text(f"The language code being used for this chat is: {chat_lang}")
+    lang = await get_chat_language(chat_id)
+    await message.reply(f"🌐 Current chat language: {lang or 'Not set!'}")
 
-@Client.on_message(filters.text, group=2)
-async def store_messages(client, message: Message):
-    global message_cache
+@nexichat.on_callback_query(filters.regex("^choose_lang$"))
+async def lang_callback_handler(client: Client, query: CallbackQuery):
+    """Handle language selection callback"""
+    await query.answer()
+    await query.message.edit_text(
+        "Please choose your preferred language:",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("English 🇺🇸", callback_data="lang_en"),
+             InlineKeyboardButton("Hindi 🇮🇳", callback_data="lang_hi")],
+            [InlineKeyboardButton("Cancel ❌", callback_data="lang_cancel")]
+        ])
+    )
 
+@nexichat.on_callback_query(filters.regex("^lang_(.*)$"))
+async def set_lang_handler(client: Client, query: CallbackQuery):
+    """Set language from callback"""
+    lang_code = query.data.split("_")[1]
+    if lang_code == "cancel":
+        await query.message.delete()
+        return
+    
+    chat_id = query.message.chat.id
+    await set_chat_language(chat_id, lang_code)
+    await query.answer(f"Language set to {lang_code.upper()}!")
+    await query.message.edit_text(f"✅ Successfully set language to {lang_code.upper()}")
+
+async def detect_language(messages: List[str]) -> Optional[str]:
+    """Detect language using external API"""
+    try:
+        history = "\n".join([f"- {msg}" for msg in messages])
+        prompt = f"""
+        Analyze these messages and identify the dominant language (ISO 639-1 code):
+        {history}
+        Respond ONLY with the 2-letter language code.
+        """
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                LANG_DETECTION_API,
+                params={"chat": prompt},
+                timeout=10
+            ) as response:
+                result = await response.text()
+                return re.search(r"[a-z]{2}", result.strip(), re.I).group().lower()
+                
+    except Exception as e:
+        print(f"Language detection error: {e}")
+        return None
+
+async def process_message_batch(chat_id: int):
+    """Process cached messages for a chat"""
+    if chat_id not in message_cache:
+        return
+    
+    messages = [msg.text for msg in message_cache[chat_id] if msg.text]
+    if len(messages) < 5:  # Minimum messages for reliable detection
+        return
+    
+    lang_code = await detect_language(messages)
+    if not lang_code:
+        return
+    
+    # Send detection result with action buttons
+    markup = InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ Set Automatically", callback_data=f"lang_{lang_code}"),
+         InlineKeyboardButton("🗣 Choose Manually", callback_data="choose_lang")]
+    ])
+    
+    await nexichat.send_message(
+        chat_id,
+        f"🌍 Detected dominant language: {lang_code.upper()}\n"
+        "Choose an option:",
+        reply_markup=markup
+    )
+    message_cache.pop(chat_id, None)
+
+@nexichat.on_message(filters.text & ~filters.bot & ~filters.command)
+async def message_store_handler(client: Client, message: Message):
+    """Store messages and trigger language detection"""
     chat_id = message.chat.id
-    bot_id = client.me.id
-    chat_lang = await get_chat_language(chat_id, bot_id)
-
-    if not chat_lang or chat_lang == "nolang":
-        if message.from_user and message.from_user.is_bot:
-            return
-
-        if chat_id not in message_cache:
-            message_cache[chat_id] = []
-
-        message_cache[chat_id].append(message)
-
-        if len(message_cache[chat_id]) >= 30:
-            history = "\n\n".join(
-                [f"Text: {msg.text}..." for msg in message_cache[chat_id]]
-            )
-            user_input = f"""
-            sentences list :-
-            [
-            {history}
-            ]
-
-            Above is a list of sentences. Each sentence could be in different languages. Analyze the language of each sentence separately and identify the dominant language used for each sentence. Then, consider the language that appears the most, ignoring any commands like sentences starting with /. 
-            Provide only the official language name with language code (like 'en' for English, 'hi' for Hindi) in this format:
-            Lang Name :- ""
-            Lang code :- ""
-            Provide only overall [Lang Name and Lang Code] in the above format. Do not provide anything else.
-            """
-            
-            base_url = "https://chatwithai.codesearch.workers.dev/?chat="
-            response = requests.get(base_url + user_input)
-            reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton("sᴇʟᴇᴄᴛ ʟᴀɴɢᴜᴀɢᴇ", callback_data="choose_lang")]])    
-            await message.reply_text(f"**Chat language detected for this chat:**\n\n{response.text}\n\n**You can set my lang by /lang**", reply_markup=reply_markup)
-            message_cache[chat_id].clear()
+    
+    # Check existing language
+    current_lang = await get_chat_language(chat_id)
+    if current_lang and current_lang != "nolang":
+        return
+    
+    # Initialize cache
+    if chat_id not in message_cache:
+        message_cache[chat_id] = []
+        # Schedule cache cleanup
+        asyncio.get_event_loop().call_later(
+            CACHE_TTL, 
+            lambda: message_cache.pop(chat_id, None)
+        )
+    
+    # Add message to cache
+    message_cache[chat_id].append(message)
+    
+    # Process when cache reaches threshold
+    if len(message_cache[chat_id]) >= CACHE_SIZE:
+        await process_message_batch(chat_id)
